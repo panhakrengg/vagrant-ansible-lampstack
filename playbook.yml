@@ -1,0 +1,154 @@
+---
+
+- name: Setup LAMP Stack and Worpress
+  gather_facts: false
+  hosts: all
+  vars:
+    apt_packages:
+      - apache2
+      - php
+      - php-common
+      - php-xml
+      - php-mysql
+      - php-xmlrpc
+      - php-curl
+      - php-gd
+      - php-imagick
+      - php-cli
+      - php-dev
+      - php-imap
+      - php-mbstring
+      - php-opcache
+      - php-soap
+      - php-zip
+      - php-intl
+      - mariadb-server
+      - mariadb-client
+      - unzip
+    root_password: "Wordpress"
+  tasks:
+    - name: Install prerequisites packages
+      become: true
+      ansible.builtin.apt:
+        name: "{{ apt_packages }}"
+        state: present
+        update_cache: yes
+
+    - name: Enable service mariadb (autostart on reboot)
+      become: true
+      ansible.builtin.systemd:
+        name: mariadb
+        enabled: true
+
+    - name: Start maraidb service
+      become: true
+      ansible.builtin.systemd:
+        name: mariadb
+        state: started
+
+    - name: Install Python packages
+      become: true
+      ansible.builtin.pip:
+        name: PyMySQL
+
+    - name: Check if root ueser is initialized
+      become: true
+      ansible.builtin.stat:
+        path: /root/.root_initialized
+      register: root_initialized
+
+    - name: Update maraidb root password
+      become: true
+      community.mysql.mysql_user:
+        name: 'root'
+        login_user: root
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        password: '{{ root_password }}'
+      register: root_setup
+      when: root_initialized.stat.exists is false
+
+    - name: Create initial file
+      become: true
+      ansible.builtin.file:
+        path: /root/.root_initialized
+        state: touch
+      when: root_setup.changed
+
+    - name: Remove anonymous user
+      community.mysql.mysql_user:
+        name: ""
+        host: "localhost"
+        host_all: true
+        login_user: root
+        login_password: "{{ root_password }}"
+        state: absent
+
+    - name: Create wordpress database
+      community.mysql.mysql_db:
+        name: "wordpress_db"
+        state: present
+        login_host : "localhost"
+        login_user: root
+        login_password: "{{ root_password }}"
+
+    - name: Create wordpress database user
+      community.mysql.mysql_user:
+        state: present
+        host : "localhost"
+        login_user: root
+        login_password: "{{ root_password }}"
+        name: "wordpress_db_user"
+        password: "wordpress_db_password"
+        priv:
+          'wordpress_db.*': 'ALL'
+
+    - name: Download wordpress package
+      ansible.builtin.get_url:
+        url: https://wordpress.org/latest.zip
+        dest: /tmp/wordpress.zip
+
+    - name: Unarchive wordpress package
+      become: true
+      ansible.builtin.unarchive:
+        src: /tmp/wordpress.zip
+        dest: /var/www/html/
+        remote_src: yes
+
+    - name: Set owner and permissions to wordpress directory
+      become: true
+      ansible.builtin.file:
+        path: /var/www/html/wordpress
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Copy apache config file
+      become: true
+      ansible.builtin.copy:
+        src: /vagrant/wordpress.conf
+        dest: /etc/apache2/sites-available/wordpress.conf
+
+    - name: Create a symbolic link
+      become: true
+      ansible.builtin.file:
+        src: /etc/apache2/sites-available/wordpress.conf
+        dest: /etc/apache2/sites-enabled/wordpress.conf
+        state: link
+
+    - name: delete a symbolic link
+      become: true
+      ansible.builtin.file:
+        dest: /etc/apache2/sites-enabled/000-default.conf
+        state: absent
+
+    - name: Enable the Apache2 module rewrite
+      become: true
+      community.general.apache2_module:
+        state: present
+        name: rewrite
+
+    - name: Retart apache2 service
+      become: true
+      ansible.builtin.systemd:
+        name: apache2
+        state: restarted
