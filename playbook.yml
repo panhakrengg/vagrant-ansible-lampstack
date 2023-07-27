@@ -1,5 +1,4 @@
 ---
-
 - name: Setup LAMP Stack and Worpress
   gather_facts: false
   hosts: all
@@ -25,12 +24,12 @@
       - mariadb-server
       - mariadb-client
       - unzip
-    root_password: "Wordpress"
+    root_password: 'Wordpress'
   tasks:
     - name: Install prerequisites packages
       become: true
       ansible.builtin.apt:
-        name: "{{ apt_packages }}"
+        name: '{{ apt_packages }}'
         state: present
         update_cache: yes
 
@@ -76,29 +75,29 @@
 
     - name: Remove anonymous user
       community.mysql.mysql_user:
-        name: ""
-        host: "localhost"
+        name: ''
+        host: 'localhost'
         host_all: true
         login_user: root
-        login_password: "{{ root_password }}"
+        login_password: '{{ root_password }}'
         state: absent
 
     - name: Create wordpress database
       community.mysql.mysql_db:
-        name: "wordpress_db"
+        name: 'wordpress_db'
         state: present
-        login_host : "localhost"
+        login_host: 'localhost'
         login_user: root
-        login_password: "{{ root_password }}"
+        login_password: '{{ root_password }}'
 
     - name: Create wordpress database user
       community.mysql.mysql_user:
         state: present
-        host : "localhost"
+        host: 'localhost'
         login_user: root
-        login_password: "{{ root_password }}"
-        name: "wordpress_db_user"
-        password: "wordpress_db_password"
+        login_password: '{{ root_password }}'
+        name: 'wordpress_db_user'
+        password: 'wordpress_db_password'
         priv:
           'wordpress_db.*': 'ALL'
 
@@ -147,8 +146,38 @@
         state: present
         name: rewrite
 
+    - name: Update ports.conf
+      become: true
+      ansible.builtin.copy:
+        src: /vagrant/ports.conf
+        dest: /etc/apache2/ports.conf
+
     - name: Retart apache2 service
       become: true
       ansible.builtin.systemd:
         name: apache2
+        state: restarted
+
+    - name: Copy nginx wordpress conf
+      become: true
+      ansible.builtin.copy:
+        src: /vagrant/wordpress_proxy.conf
+        dest: /etc/nginx/conf.d/wordpress_proxy.conf
+
+    - name: Create nginx ssl directory
+      become: true
+      ansible.builtin.file:
+        state: directory
+        path: /etc/nginx/ssl
+
+    - name: Copy certificate
+      become: true
+      ansible.builtin.copy:
+        src: /vagrant/nginx/
+        dest: /etc/nginx/ssl
+
+    - name: Restart nginx service
+      become: true
+      ansible.builtin.systemd:
+        name: nginx
         state: restarted
